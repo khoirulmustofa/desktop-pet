@@ -1,0 +1,6 @@
+# build artifacts
+/dist/
+desktop-pet.exe
+
+# local data
+*.log
