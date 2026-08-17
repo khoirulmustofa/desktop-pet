@@ -5,6 +5,7 @@ package window
 // bindings live here so they can be audited in one place.
 
 import (
+	"errors"
 	"syscall"
 	"unsafe"
 )
@@ -261,6 +262,8 @@ var (
 	pDestroyMenu           = user32.proc("DestroyMenu")
 	pAppendMenuW           = user32.proc("AppendMenuW")
 	pTrackPopupMenu        = user32.proc("TrackPopupMenu")
+	pEnumDisplayMonitors   = user32.proc("EnumDisplayMonitors")
+	pMonitorFromPoint      = user32.proc("MonitorFromPoint")
 	pGetMonitorInfoW       = user32.proc("GetMonitorInfoW")
 	pUpdateLayeredWindow   = user32.proc("UpdateLayeredWindow")
 	pCreateIconIndirect    = user32.proc("CreateIconIndirect")
@@ -378,14 +381,44 @@ func PrimaryWorkArea() (RECT, error) {
 func MonitorInfoAt(x, y int) (MONITORINFO, uintptr) {
 	var mi MONITORINFO
 	mi.CbSize = uint32(unsafe.Sizeof(mi))
-	var pt POINT
-	pt.X = int32(x)
-	pt.Y = int32(y)
-	dll := syscall.NewLazyDLL("user32.dll")
-	mfp := dll.NewProc("MonitorFromPoint")
-	h, _, _ := mfp.Call(uintptr(unsafe.Pointer(&pt)), MONITOR_DEFAULTTONEAREST)
+	h := MonitorHandleAt(x, y)
 	if h != 0 {
 		pGetMonitorInfoW.Call(h, uintptr(unsafe.Pointer(&mi)))
 	}
 	return mi, h
+}
+
+// MonitorHandleAt returns the HMONITOR of the monitor containing (x, y),
+// falling back to the nearest monitor when the point is outside every monitor.
+func MonitorHandleAt(x, y int) uintptr {
+	var pt POINT
+	pt.X = int32(x)
+	pt.Y = int32(y)
+	h, _, _ := pMonitorFromPoint.Call(uintptr(unsafe.Pointer(&pt)), MONITOR_DEFAULTTONEAREST)
+	return h
+}
+
+// displayMonitors accumulates results during EnumDisplayMonitors.
+var displayMonitors []MONITORINFO
+
+// monitorEnumCb keeps the enum callback alive across the syscall.
+var monitorEnumCb uintptr
+
+func enumMonitorProc(hmonitor, hdc, lprcClip, dwData uintptr) uintptr {
+	var mi MONITORINFO
+	mi.CbSize = uint32(unsafe.Sizeof(mi))
+	pGetMonitorInfoW.Call(hmonitor, uintptr(unsafe.Pointer(&mi)))
+	displayMonitors = append(displayMonitors, mi)
+	return 1 // continue enumerating
+}
+
+// EnumDisplays returns MONITORINFO for every monitor on the desktop.
+func EnumDisplays() ([]MONITORINFO, error) {
+	displayMonitors = displayMonitors[:0]
+	monitorEnumCb = syscall.NewCallback(enumMonitorProc)
+	r, _, _ := pEnumDisplayMonitors.Call(0, 0, monitorEnumCb, 0)
+	if r == 0 {
+		return nil, errors.New("EnumDisplayMonitors failed")
+	}
+	return displayMonitors, nil
 }

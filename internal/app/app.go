@@ -37,6 +37,9 @@ type App struct {
 	mover  movement.Mover
 	engine *behavior.Engine
 
+	// sprite size
+	w, h int
+
 	// physics / position
 	x       float64
 	y       float64
@@ -44,8 +47,9 @@ type App struct {
 	groundY float64
 
 	// behavior
-	countdown float64
-	walkTime  float64
+	countdown  float64
+	walkTime   float64
+	safetyTick float64
 
 	// interaction
 	dragging    bool
@@ -89,6 +93,8 @@ func Run() error {
 		cfg:    cfg,
 		rng:    rand.New(rand.NewSource(rand.Int63())),
 		anims:  anims,
+		w:      sw,
+		h:      sh,
 		engine: behavior.NewEngine(cfg.IdleMinSec, cfg.IdleMaxSec, nil),
 	}
 
@@ -314,12 +320,46 @@ func (a *App) tick(dt float64) {
 		if a.countdown <= 0 {
 			a.planNext()
 		}
+		a.checkMonitor(dt)
 	}
 
 	changed := a.sm.Tick(dt)
 	if changed || mustRedraw {
 		a.renderer.Draw(a.sm.Frame(), int(a.x), int(a.y), a.opacity())
 	}
+}
+
+// checkMonitor runs periodically while idle. If the pet ends up outside the
+// monitor it is bound to (e.g. the monitor was unplugged), it re-binds to the
+// monitor under the pet.
+func (a *App) checkMonitor(dt float64) {
+	a.safetyTick += dt
+	if a.safetyTick < 1.0 {
+		return
+	}
+	a.safetyTick = 0
+	wa := monitor.At(int(a.x)+a.w/2, int(a.y)+a.h/2)
+	if int(a.x) < wa.Left || int(a.x)+a.w > wa.Right || a.y > a.groundY+1 {
+		a.bindMonitor(wa)
+	}
+}
+
+// bindMonitor sets the pet's ground and horizontal bounds to a monitor's work
+// area and clamps the pet inside it.
+func (a *App) bindMonitor(wa monitor.WorkArea) {
+	a.mover.LeftMin = float64(wa.Left)
+	a.mover.RightMax = float64(wa.Right)
+	a.groundY = float64(wa.Bottom) - float64(a.h) - 8
+	if a.y > a.groundY {
+		a.y = a.groundY
+	}
+	if a.x < float64(wa.Left) {
+		a.x = float64(wa.Left)
+	}
+	if maxX := float64(wa.Right) - float64(a.w); a.x > maxX {
+		a.x = maxX
+	}
+	a.mover.X = a.x
 }
 
 // ---------------------------------------------------------------------------
@@ -360,7 +400,10 @@ func (a *App) OnLeftButtonUp(x, y int) {
 	}
 	a.dragging = false
 	a.win.ReleaseCapture()
+	// Re-bind to whatever monitor the pet was dropped on.
+	a.bindMonitor(monitor.At(int(a.x)+a.w/2, int(a.y)+a.h/2))
 	a.enterIdle()
+	a.renderer.Draw(a.sm.Frame(), int(a.x), int(a.y), a.opacity())
 }
 
 func (a *App) OnRightButtonUp(x, y int) {
@@ -408,14 +451,15 @@ func (a *App) OnUserMsg(msg uint32, wparam, lparam uintptr) {
 // ---------------------------------------------------------------------------
 
 const (
-	menuShowHide  = 1
-	menuPause     = 2
-	menuTopMost   = 3
-	menuClickThru = 4
-	menuAutoStart = 5
-	menuFPS       = 6
-	menuScale     = 7
-	menuExit      = 8
+	menuShowHide    = 1
+	menuPause       = 2
+	menuTopMost     = 3
+	menuClickThru   = 4
+	menuAutoStart   = 5
+	menuFPS         = 6
+	menuScale       = 7
+	menuExit        = 8
+	menuMoveMonitor = 100 // monitor i -> menuMoveMonitor + i
 )
 
 func (a *App) showMenu(x, y int) {
@@ -431,9 +475,26 @@ func (a *App) showMenu(x, y int) {
 		{ID: menuAutoStart, Text: "Start with Windows", Checked: a.cfg.AutoStart},
 		{ID: menuFPS, Text: fmt.Sprintf("FPS: %d", a.cfg.FPS)},
 		{ID: menuScale, Text: fmt.Sprintf("Scale: %.1fx", a.cfg.Scale)},
-		{Separator: true},
-		{ID: menuExit, Text: "Exit"},
 	}
+	if monitors, err := monitor.List(); err == nil && len(monitors) > 1 {
+		items = append(items, tray.MenuItem{Separator: true})
+		cur := monitor.IndexAt(int(a.x)+a.w/2, int(a.y)+a.h/2, monitors)
+		for _, m := range monitors {
+			label := fmt.Sprintf("Move to Monitor %d", m.Index+1)
+			if m.Primary {
+				label += " (Primary)"
+			}
+			items = append(items, tray.MenuItem{
+				ID:      menuMoveMonitor + m.Index,
+				Text:    label,
+				Checked: m.Index == cur,
+			})
+		}
+	}
+	items = append(items,
+		tray.MenuItem{Separator: true},
+		tray.MenuItem{ID: menuExit, Text: "Exit"},
+	)
 	id := tray.ShowMenu(a.win.Hwnd(), items, x, y)
 	if id != 0 {
 		a.handleMenu(id)
@@ -441,6 +502,10 @@ func (a *App) showMenu(x, y int) {
 }
 
 func (a *App) handleMenu(id int) {
+	if id >= menuMoveMonitor {
+		a.moveToMonitor(id - menuMoveMonitor)
+		return
+	}
 	switch id {
 	case menuShowHide:
 		if a.hidden {
@@ -492,6 +557,21 @@ func (a *App) handleMenu(id int) {
 	}
 }
 
+// moveToMonitor teleports the pet to the bottom-center of monitor index idx.
+func (a *App) moveToMonitor(idx int) {
+	monitors, err := monitor.List()
+	if err != nil || idx < 0 || idx >= len(monitors) {
+		return
+	}
+	wa := monitors[idx].WorkArea
+	a.x = float64(wa.Left + (wa.Width()-a.w)/2)
+	a.y = float64(wa.Bottom) - float64(a.h) - 8
+	a.bindMonitor(wa)
+	a.enterIdle()
+	a.renderer.Draw(a.sm.Frame(), int(a.x), int(a.y), a.opacity())
+	logging.Printf("Moved to monitor %d", idx+1)
+}
+
 func (a *App) hidePet() {
 	a.hidden = true
 	a.win.Show(false)
@@ -522,13 +602,11 @@ func (a *App) reloadScale() {
 		return
 	}
 	a.anims = anims
+	a.w, a.h = sw, sh
 	state := a.sm.State()
 	a.sm.Change(state, a.anims)
 	a.mover.Width = float64(sw)
-	a.groundY = float64(monitor.At(int(a.x), int(a.y)).Bottom) - float64(sh) - 8
-	if a.y > a.groundY {
-		a.y = a.groundY
-	}
+	a.bindMonitor(monitor.At(int(a.x)+sw/2, int(a.y)+sh/2))
 	a.renderer.Draw(a.sm.Frame(), int(a.x), int(a.y), a.opacity())
 }
 

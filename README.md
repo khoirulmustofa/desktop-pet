@@ -17,6 +17,8 @@ Tanpa Electron, tanpa browser engine, tanpa WebView.
 - Behavior engine: pet idle 5–15 detik lalu random (walk/jump/sleep/happy).
 - Gerakan horizontal dengan delta-time + batas layar (work area monitor).
 - Fisika lompat sederhana (gravity + jump velocity).
+- **Multi-monitor**: drag pet ke monitor lain, atau klik kanan/tray → "Move to
+  Monitor 1/2/…" (daftar monitor aktif, dengan centang pada monitor saat ini).
 - Drag karakter dengan mouse; klik kanan / tray icon membuka menu.
 - System tray: Show/Hide, Pause/Resume, Always on Top, Click-through,
   Start with Windows, FPS & Scale, Exit.
@@ -129,7 +131,7 @@ internal/behavior   random behavior engine
 internal/movement   gerakan delta-time + boundary
 internal/tray       Shell_NotifyIcon + popup menu
 internal/config     config.json + auto-start registry (HKCU Run)
-internal/monitor    work area monitor (multi-monitor ready)
+internal/monitor    enumerasi & work area monitor (multi-monitor)
 internal/spritegen  penggambar kucing prosedural
 ```
 
@@ -139,6 +141,20 @@ Desain utama:
 - `SetTimer` 30/60 FPS; render hanya ketika frame berubah / pet bergerak.
 - Tidak ada goroutine per-frame, tidak ada busy loop.
 - Zero dependency; semua Win32 via `syscall.NewLazyDLL`.
+
+## Multi-monitor
+
+- Enumerasi monitor via `EnumDisplayMonitors` (`internal/monitor/monitor.go`).
+- Pet menempel pada monitor tempat ia berada: `groundY` & batas gerak mengikuti
+  work area monitor tersebut (`bindMonitor` di `internal/app/app.go`).
+- Pindah monitor lewat:
+  - **Drag** — tarik pet ke monitor lain; saat dilepas ia otomatis menempel ke
+    monitor tersebut.
+  - **Menu** — klik kanan pet / tray icon → `Move to Monitor 1/2/…` (hanya
+    tampil bila ada >1 monitor aktif).
+- Menampilkan "Move to Monitor N" berurutan kiri→kanan sesuai posisi monitor;
+  yang primary diberi label `(Primary)`.
+- Safeguard: jika monitor dicabut, pet otomatis menempel ke monitor terdekat.
 
 ## Performance
 
