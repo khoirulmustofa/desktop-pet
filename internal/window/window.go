@@ -139,18 +139,6 @@ func (w *Window) SetTopMost(top bool) {
 	setWindowPos(w.hwnd, insert, 0, 0, 0, 0, SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE)
 }
 
-// SetClickThrough toggles WS_EX_TRANSPARENT so all mouse input passes through.
-func (w *Window) SetClickThrough(on bool) {
-	style := getWindowLongPtr(w.hwnd, GWL_EXSTYLE)
-	if on {
-		style |= WS_EX_TRANSPARENT
-	} else {
-		style &^= WS_EX_TRANSPARENT
-	}
-	setWindowLongPtr(w.hwnd, GWL_EXSTYLE, style)
-	setWindowPos(w.hwnd, 0, 0, 0, 0, 0, SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_FRAMECHANGED|SWP_NOACTIVATE)
-}
-
 // SetTimer starts a periodic WM_TIMER.
 func (w *Window) SetTimer(id uintptr, ms uint) {
 	setTimer(w.hwnd, id, ms)

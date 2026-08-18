@@ -20,6 +20,9 @@ Tanpa Electron, tanpa browser engine, tanpa WebView.
 - **Multi-monitor**: drag pet ke monitor lain, atau klik kanan/tray → "Move to
   Monitor 1/2/…" (daftar monitor aktif, dengan centang pada monitor saat ini).
 - Drag karakter dengan mouse; klik kanan / tray icon membuka menu.
+  **Click-through** meneruskan klik kiri ke aplikasi di bawahnya, tapi klik
+  kanan pada pet tetap membuka menu (jadi mode click-through selalu bisa
+  dimatikan dari menu pet).
 - System tray: Show/Hide, Pause/Resume, Always on Top, Click-through,
   Start with Windows, FPS & Scale, Exit.
 - Konfigurasi `config.json` di `%APPDATA%\DesktopPet\`.

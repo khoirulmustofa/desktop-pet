@@ -18,13 +18,10 @@ const (
 	WS_POPUP   = 0x80000000
 	WS_VISIBLE = 0x10000000
 
-	WS_EX_LAYERED     = 0x00080000
-	WS_EX_TOPMOST     = 0x00000008
-	WS_EX_TOOLWINDOW  = 0x00000080
-	WS_EX_TRANSPARENT = 0x00000020
-	WS_EX_NOACTIVATE  = 0x08000000
-
-	GWL_EXSTYLE = -20
+	WS_EX_LAYERED    = 0x00080000
+	WS_EX_TOPMOST    = 0x00000008
+	WS_EX_TOOLWINDOW = 0x00000080
+	WS_EX_NOACTIVATE = 0x08000000
 
 	SW_HIDE           = 0
 	SW_SHOWNORMAL     = 1
@@ -72,6 +69,8 @@ const (
 	SPI_GETWORKAREA = 0x0030
 
 	IDC_ARROW = 32512
+
+	VK_RBUTTON = 0x02
 
 	// Popup menu
 	MF_STRING    = 0x00000000
@@ -256,8 +255,7 @@ var (
 	pReleaseCapture        = user32.proc("ReleaseCapture")
 	pGetCursorPos          = user32.proc("GetCursorPos")
 	pGetWindowRect         = user32.proc("GetWindowRect")
-	pSetWindowLongPtrW     = user32.proc("SetWindowLongPtrW")
-	pGetWindowLongPtrW     = user32.proc("GetWindowLongPtrW")
+	pGetAsyncKeyState      = user32.proc("GetAsyncKeyState")
 	pCreatePopupMenu       = user32.proc("CreatePopupMenu")
 	pDestroyMenu           = user32.proc("DestroyMenu")
 	pAppendMenuW           = user32.proc("AppendMenuW")
@@ -309,16 +307,6 @@ func getWindowRect(hwnd uintptr) RECT {
 	return r
 }
 
-func setWindowLongPtr(hwnd uintptr, index int, value uintptr) uintptr {
-	r, _, _ := pSetWindowLongPtrW.Call(hwnd, uintptr(index), value)
-	return r
-}
-
-func getWindowLongPtr(hwnd uintptr, index int) uintptr {
-	r, _, _ := pGetWindowLongPtrW.Call(hwnd, uintptr(index))
-	return r
-}
-
 func setWindowPos(hwnd uintptr, hwndInsertAfter uintptr, x, y, cx, cy int, flags uint32) {
 	pSetWindowPos.Call(hwnd, hwndInsertAfter, uintptr(x), uintptr(y), uintptr(cx), uintptr(cy), uintptr(flags))
 }
@@ -346,6 +334,13 @@ func getCursorPos() (x, y int) {
 
 // GetCursorPos returns the cursor screen position.
 func GetCursorPos() (int, int) { return getCursorPos() }
+
+// IsRightButtonDown reports whether the right mouse button is currently
+// pressed. Used to keep the right-click menu reachable in click-through mode.
+func IsRightButtonDown() bool {
+	r, _, _ := pGetAsyncKeyState.Call(VK_RBUTTON)
+	return r&0x8000 != 0
+}
 
 // SetProcessDPIAware makes GetSystemMetrics / coordinates physical-pixel based.
 func SetProcessDPIAware() {

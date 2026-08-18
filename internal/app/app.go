@@ -52,9 +52,10 @@ type App struct {
 	safetyTick float64
 
 	// interaction
-	dragging    bool
-	dragOffsetX int
-	dragOffsetY int
+	dragging       bool
+	dragOffsetX    int
+	dragOffsetY    int
+	menuClickGuard bool
 
 	paused bool
 	hidden bool
@@ -108,9 +109,6 @@ func Run() error {
 	// Apply persisted window options.
 	if !cfg.AlwaysOnTop {
 		win.SetTopMost(false)
-	}
-	if cfg.ClickThrough {
-		win.SetClickThrough(true)
 	}
 
 	// Place pet on the primary monitor work area.
@@ -327,6 +325,7 @@ func (a *App) tick(dt float64) {
 	if changed || mustRedraw {
 		a.renderer.Draw(a.sm.Frame(), int(a.x), int(a.y), a.opacity())
 	}
+	a.checkClickThroughMenu()
 }
 
 // checkMonitor runs periodically while idle. If the pet ends up outside the
@@ -411,10 +410,20 @@ func (a *App) OnRightButtonUp(x, y int) {
 }
 
 // OnHitTest decides whether the pixel under the cursor belongs to the pet.
+// In click-through mode left clicks pass through; right clicks are handled by
+// checkClickThroughMenu because the hit-test runs before the button is pressed.
 func (a *App) OnHitTest(sx, sy int) bool {
-	if a.cfg.ClickThrough {
+	if !a.pixelHit(sx, sy) {
 		return false
 	}
+	if a.cfg.ClickThrough && !window.IsRightButtonDown() {
+		return false
+	}
+	return true
+}
+
+// pixelHit reports whether the screen point is over an opaque pet pixel.
+func (a *App) pixelHit(sx, sy int) bool {
 	wx, wy := a.win.Pos()
 	frame := a.sm.Frame()
 	if frame == nil {
@@ -427,6 +436,25 @@ func (a *App) OnHitTest(sx, sy int) bool {
 		return false
 	}
 	return frame.RGBAAt(lx, ly).A > 10
+}
+
+// checkClickThroughMenu keeps the right-click menu reachable while
+// click-through is enabled: the pet window never receives mouse messages then,
+// so we poll the right button once per tick and open the menu when it is
+// pressed over the pet.
+func (a *App) checkClickThroughMenu() {
+	if !a.cfg.ClickThrough {
+		return
+	}
+	if window.IsRightButtonDown() {
+		x, y := cursorPos()
+		if !a.menuClickGuard && a.pixelHit(x, y) {
+			a.menuClickGuard = true
+			a.showMenu(x, y)
+		}
+	} else {
+		a.menuClickGuard = false
+	}
 }
 
 func (a *App) OnUserMsg(msg uint32, wparam, lparam uintptr) {
@@ -521,7 +549,6 @@ func (a *App) handleMenu(id int) {
 		a.saveConfig()
 	case menuClickThru:
 		a.cfg.ClickThrough = !a.cfg.ClickThrough
-		a.win.SetClickThrough(a.cfg.ClickThrough)
 		a.saveConfig()
 	case menuAutoStart:
 		a.cfg.AutoStart = !a.cfg.AutoStart
